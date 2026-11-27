@@ -18,7 +18,7 @@ PDF'i olmayan basılı kitaplar için: kitaplıkta **📷 Kitap tara** → kitab
 
 1. [Releases](../../releases/latest) sayfasından `KitShorts-x.y.z.apk` dosyasını telefona indir.
 2. Dosyayı aç; Android "bilinmeyen kaynaklardan yükleme" izni isterse tarayıcıya / dosya yöneticisine izin ver.
-3. Kur ve aç. Taranmış PDF'lerde OCR ilk kullanımda dil modelini indirdiği için internet gerekir.
+3. Kur ve aç. Uygulama internetsiz çalışır; yazı tanıma (OCR) verileri uygulamanın içinde gelir.
 
 Uygulama Play Store'da yok; güncellemeler yine Releases sayfasından kurulur (eski sürümün üstüne yüklenir, kitaplık korunur).
 

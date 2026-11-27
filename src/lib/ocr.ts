@@ -1,17 +1,33 @@
-import { createScheduler, createWorker, type Block } from 'tesseract.js'
+import { createScheduler, createWorker as createTesseractWorker, OEM, type Block } from 'tesseract.js'
+import { Capacitor } from '@capacitor/core'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 import { median, type Line } from './paragraphs'
 import { ocrCanvas } from './imagePrep'
 
 // Render width used for OCR; roughly 200 dpi for an A4 page.
 const OCR_WIDTH = 1700
-const LANGUAGES = ['tur', 'eng']
 
 type Recognize = (canvas: HTMLCanvasElement) => Promise<Block[]>
 
+// Bundled copies (see vite.config.ts); absolute because the worker runs from a blob: URL.
+const assets = new URL(`${import.meta.env.BASE_URL}tesseract/`, location.href).href
+// Tesseract only reports some startup failures (e.g. language data that can't be loaded) to
+// errorHandler and never settles its promise; turn those into a rejection instead of hanging.
+const createWorker = (lang: string) =>
+  new Promise<Awaited<ReturnType<typeof createTesseractWorker>>>((resolve, reject) => {
+    createTesseractWorker(lang, OEM.LSTM_ONLY, {
+      workerPath: `${assets}worker.min.js`,
+      corePath: `${assets}core`,
+      langPath: `${assets}lang`,
+      // The bundled language files are stored unpacked (see vite.config.ts).
+      gzip: false,
+      errorHandler: (e: unknown) => reject(e instanceof Error ? e : new Error(String(e))),
+    }).then(resolve, reject)
+  })
+
 /**
  * OCRs the given pages in order and reports each page's lines (in PDF coordinates) as it finishes.
- * The book's language is picked first by reading one sample page in every candidate language.
+ * The book's language is picked first from one sample page (see detectLanguage).
  */
 export async function ocrPages(
   pdf: PDFDocumentProxy,
@@ -87,7 +103,9 @@ async function runPool(
   job: (index: number, recognize: Recognize) => Promise<void>,
 ): Promise<void> {
   const scheduler = createScheduler()
-  const workerCount = Math.max(1, Math.min(count, 4, Math.floor((navigator.hardwareConcurrency || 2) / 2)))
+  // Phones run out of memory with many workers each holding a page image and the model.
+  const maxWorkers = Capacitor.isNativePlatform() ? 2 : 4
+  const workerCount = Math.max(1, Math.min(count, maxWorkers, Math.floor((navigator.hardwareConcurrency || 2) / 2)))
   const recognize: Recognize = async (canvas) =>
     (await scheduler.addJob('recognize', canvas, {}, { blocks: true })).data.blocks ?? []
   try {
@@ -102,19 +120,43 @@ async function runPool(
   }
 }
 
-async function detectLanguage(sample: HTMLCanvasElement): Promise<string> {
-  const worker = await createWorker(LANGUAGES[0])
-  let best = { lang: LANGUAGES[0], confidence: -1 }
+// Reading the sample doesn't need full resolution; a smaller one keeps this quick on phones.
+const DETECT_MAX = 1200
+
+/**
+ * Reads a sample page with the Turkish model and keeps Turkish unless the page is clearly English.
+ * (Comparing the two models' confidences doesn't work: the English model is often *more* confident
+ * on Turkish text, reading "şey" as "sey" and "ığ" as garbage, which ruined whole books.)
+ */
+async function detectLanguage(page: HTMLCanvasElement): Promise<string> {
+  const scale = Math.min(1, DETECT_MAX / Math.max(page.width, page.height))
+  const sample = document.createElement('canvas')
+  sample.width = Math.round(page.width * scale)
+  sample.height = Math.round(page.height * scale)
+  sample.getContext('2d')!.drawImage(page, 0, 0, sample.width, sample.height)
+  const worker = await createWorker('tur')
   try {
-    for (const lang of LANGUAGES) {
-      if (lang !== LANGUAGES[0]) await worker.reinitialize(lang)
-      const { data } = await worker.recognize(sample)
-      if (data.confidence > best.confidence) best = { lang, confidence: data.confidence }
-    }
+    const { data } = await worker.recognize(sample)
+    return guessLanguage(data.text)
   } finally {
     await worker.terminate()
+    sample.width = sample.height = 0
   }
-  return best.lang
+}
+
+const TURKISH_WORDS = new Set(['ve', 'bir', 'bu', 'da', 'de', 'için', 'ile', 'ne', 'çok', 'gibi', 'daha', 'o', 'ama', 'ki'])
+const ENGLISH_WORDS = new Set(['the', 'and', 'of', 'to', 'is', 'in', 'that', 'it', 'was', 'for', 'with', 'he', 'she', 'you'])
+
+/** 'eng' only for text with almost no Turkish letters and mostly English function words. */
+export function guessLanguage(text: string): 'tur' | 'eng' {
+  const letters = text.match(/\p{L}/gu)?.length ?? 0
+  const turkishLetters = text.match(/[çğıöşüÇĞİÖŞÜ]/g)?.length ?? 0
+  // Turkish prose has roughly 8% of these; a stray misread on an English page stays far below 1%.
+  if (!letters || turkishLetters / letters >= 0.01) return 'tur'
+  const words = text.toLocaleLowerCase('tr').match(/\p{L}+/gu) ?? []
+  const eng = words.filter((w) => ENGLISH_WORDS.has(w)).length
+  const tur = words.filter((w) => TURKISH_WORDS.has(w)).length
+  return eng >= 3 && eng > tur * 2 ? 'eng' : 'tur'
 }
 
 async function renderPage(pdf: PDFDocumentProxy, p: number) {

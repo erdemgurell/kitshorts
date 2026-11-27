@@ -52,7 +52,7 @@ export default function Uploader({ onFile, onCreate, progress, error, library, o
               {progress.total ? `Sayfa ${progress.done} / ${progress.total}` : 'PDF açılıyor'}
             </span>
             {progress.stage === 'ocr' && progress.done === 0 && (
-              <span className="dz-sub">İlk seferde Türkçe dil modeli indiriliyor, biraz sürebilir.</span>
+              <span className="dz-sub">Kitabın dili belirleniyor, biraz sürebilir.</span>
             )}
             <span className="dz-bar">
               <span style={{ width: progress.total ? `${(progress.done / progress.total) * 100}%` : '0%' }} />

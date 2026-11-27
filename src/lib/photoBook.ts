@@ -11,8 +11,10 @@ export interface ProcessState {
   total: number
   /** Pages a worker is reading right now. */
   active: Set<string>
-  /** The OCR language model is being picked/downloaded (first pages of a new book). */
+  /** The book's language is being picked (first pages of a new book). */
   detecting: boolean
+  /** Why the last run stopped early (OCR engine failed to start); pages stay queued. */
+  error?: string
 }
 
 type Listener = (bookId: string) => void
@@ -22,11 +24,12 @@ const controllers = new Map<string, AbortController>()
 const rerun = new Set<string>()
 const listeners = new Set<Listener>()
 const rebuilds = new Map<string, Promise<void>>()
+const errors = new Map<string, string>()
 
 const idle = (): ProcessState => ({ running: false, done: 0, total: 0, active: new Set(), detecting: false })
 
 export function processState(bookId: string): ProcessState {
-  return states.get(bookId) ?? idle()
+  return states.get(bookId) ?? { ...idle(), error: errors.get(bookId) }
 }
 
 /** Called whenever a book's pages, cards or processing state change. */
@@ -89,6 +92,7 @@ async function run(bookId: string): Promise<void> {
   const state = idle()
   state.running = true
   states.set(bookId, state)
+  errors.delete(bookId)
   emit(bookId)
 
   try {
@@ -134,12 +138,24 @@ async function run(bookId: string): Promise<void> {
     } while (rerun.has(bookId) && !signal.aborted)
   } catch (e) {
     console.error(e)
+    if (!signal.aborted) errors.set(bookId, e instanceof Error ? e.message : String(e))
   } finally {
     controllers.delete(bookId)
     states.delete(bookId)
     rerun.delete(bookId)
     emit(bookId)
   }
+}
+
+/** Sets the book's OCR language and reads every page again with it. */
+export async function setLanguage(bookId: string, lang: string): Promise<void> {
+  cancelProcessing(bookId)
+  // Let a cancelled run unwind first, or a page it was saving could land after the reset below.
+  while (states.get(bookId)?.running) await new Promise((r) => setTimeout(r, 50))
+  await updateBook(bookId, { lang })
+  for (const page of await loadPages(bookId)) await updatePage(page.id, { status: 'pending', lines: undefined })
+  await rebuildCards(bookId)
+  processBook(bookId)
 }
 
 /** Puts a page back in the queue, optionally with a new photo. */

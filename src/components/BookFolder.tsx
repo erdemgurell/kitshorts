@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { deletePage, getBook, loadPages, reorderPages, updateBook, type PhotoPage, type SavedBook } from '../lib/storage'
-import { addPhotos, processBook, processState, rebuildCards, rereadPage, subscribe } from '../lib/photoBook'
+import { addPhotos, processBook, processState, rebuildCards, rereadPage, setLanguage, subscribe } from '../lib/photoBook'
 import { hasNativeCamera, pickPhotos, takePhoto, takePhotos } from '../lib/capture'
 
 interface Props {
@@ -113,6 +113,12 @@ export default function BookFolder({ bookId, onBack, onRead, onCameraOpen }: Pro
     await rebuildCards(bookId)
   }
 
+  const changeLanguage = (lang: string) => {
+    if (lang === book?.lang) return
+    if (pages.length && !confirm('Tüm sayfalar seçilen dille yeniden okunsun mu?')) return
+    void setLanguage(bookId, lang)
+  }
+
   const rename = async (name: string) => {
     setRenaming(false)
     const trimmed = name.trim()
@@ -153,6 +159,15 @@ export default function BookFolder({ bookId, onBack, onRead, onCameraOpen }: Pro
         <span>
           {pages.length} sayfa · {book.cards.length} kart
         </span>
+        {book.lang && (
+          <label className="folder-lang">
+            Dil:{' '}
+            <select value={book.lang} onChange={(e) => changeLanguage(e.target.value)} disabled={busy}>
+              <option value="tur">Türkçe</option>
+              <option value="eng">İngilizce</option>
+            </select>
+          </label>
+        )}
         <span className="folder-status">
           {adding
             ? adding.total
@@ -160,9 +175,11 @@ export default function BookFolder({ bookId, onBack, onRead, onCameraOpen }: Pro
               : `Seri çekim: ${adding.done} sayfa eklendi`
             : proc.running
               ? proc.detecting
-                ? 'Dil tespit ediliyor (ilk seferde dil modeli indirilir)…'
+                ? 'Kitabın dili belirleniyor (Türkçe / İngilizce)…'
                 : `Sayfalar okunuyor… ${proc.done} / ${proc.total}`
-              : pending
+              : proc.error
+                ? 'Yazı tanıma başlatılamadı.'
+                : pending
                 ? `${pending} sayfa sırada`
                 : failed
                   ? `${failed} sayfa okunamadı`
@@ -170,6 +187,11 @@ export default function BookFolder({ bookId, onBack, onRead, onCameraOpen }: Pro
                     ? 'Tüm sayfalar okundu'
                     : ''}
         </span>
+        {!proc.running && proc.error && (
+          <button type="button" className="action" onClick={() => processBook(bookId)}>
+            ↻ Tekrar dene
+          </button>
+        )}
         {proc.running && proc.total > 0 && (
           <span className="dz-bar">
             <span style={{ width: `${(proc.done / proc.total) * 100}%` }} />

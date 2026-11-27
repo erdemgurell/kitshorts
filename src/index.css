@@ -480,6 +480,15 @@ button {
   color: var(--text);
 }
 
+.folder-lang select {
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--muted);
+  border-radius: 6px;
+  padding: 2px 4px;
+}
+
 .folder-actions {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
