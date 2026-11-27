@@ -1,18 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 import { loadPosition, savePosition, type Book } from '../lib/storage'
-import type { Progress } from '../lib/extractParagraphs'
+import type { Progress } from '../lib/paragraphs'
 
 interface Props {
   book: Book
   /** Set while later pages are still being read (OCR); more cards will arrive. */
   progress: Progress | null
   onClose: () => void
+  backLabel?: string
+  /** Photo books: back to the page folder to add more pages. */
+  onAddPages?: () => void
 }
 
 // Only cards this close to the visible one render their text; the rest are empty snap slots.
 const WINDOW = 10
 
-export default function CardFeed({ book, progress, onClose }: Props) {
+export default function CardFeed({ book, progress, onClose, backLabel = '← Kitaplık', onAddPages }: Props) {
   const { cards } = book
   const feedRef = useRef<HTMLDivElement>(null)
   const cardRefs = useRef<(HTMLElement | null)[]>([])
@@ -75,8 +78,8 @@ export default function CardFeed({ book, progress, onClose }: Props) {
     <div className="reader">
       <header className="topbar">
         <div className="progress" style={{ width: `${((current + 1) / cards.length) * 100}%` }} />
-        <button type="button" className="back" onClick={onClose} aria-label="Kitaplığa dön">
-          ← Kitaplık
+        <button type="button" className="back" onClick={onClose}>
+          {backLabel}
         </button>
         <span className="book-name">
           {progress ? `Sayfalar okunuyor… ${progress.done} / ${progress.total}` : book.name}
@@ -112,10 +115,16 @@ export default function CardFeed({ book, progress, onClose }: Props) {
             </p>
           ) : (
             <>
-              <p>Bitti 🎉</p>
-              <button type="button" className="resume" onClick={onClose}>
-                Kitaplığa dön
-              </button>
+              <p>{onAddPages ? 'Taranan sayfalar bitti' : 'Bitti 🎉'}</p>
+              {onAddPages ? (
+                <button type="button" className="resume" onClick={onAddPages}>
+                  📷 Sayfa ekle
+                </button>
+              ) : (
+                <button type="button" className="resume" onClick={onClose}>
+                  Kitaplığa dön
+                </button>
+              )}
             </>
           )}
         </section>
