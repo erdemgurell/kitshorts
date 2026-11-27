@@ -1,0 +1,8 @@
+node_modules
+dist
+tsconfig.tsbuildinfo
+
+# Android signing material never goes into the repo
+*.jks
+*.keystore
+keystore.properties
